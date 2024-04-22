@@ -4,6 +4,8 @@ from torch.optim import Adam
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+import matplotlib.pyplot as plt
+
 from src.utils.preprocessing import *
 
 class Generator(nn.Module):
@@ -60,6 +62,9 @@ def train_wgan_gp(data_loader, generator, critic, g_optimizer, c_optimizer, devi
     generator.train()
     critic.train()
 
+    g_losses = []
+    c_losses = []
+
     for epoch in tqdm(range(epochs), desc="Training WGAN-GP"):
         for i, data in enumerate(data_loader):
             real_samples = data[0].to(device)
@@ -84,8 +89,22 @@ def train_wgan_gp(data_loader, generator, critic, g_optimizer, c_optimizer, devi
             g_loss.backward()
             g_optimizer.step()
 
-            if i % 10 == 0:
+            if i % 5 == 0:
                 print(f"Epoch: {epoch}, Batch: {i}, G_loss: {g_loss.item()}, C_loss: {c_loss.item()}")
+                g_losses.append(g_loss.item())
+                c_losses.append(c_loss.item())
+
+    plt.figure(figsize=(6, 6))
+    plt.plot(range(len(g_losses)), g_losses, marker='o')
+    plt.title('Generator Loss')
+    plt.grid(True)
+    plt.show()
+
+    plt.figure(figsize=(6, 6))
+    plt.plot(range(len(c_losses)), c_losses, marker='o')
+    plt.title('Critic Loss')
+    plt.grid(True)
+    plt.show()
 
 def train_and_generate(filepath, batch_size=32, epochs=100, device='cpu'):
 
@@ -93,7 +112,6 @@ def train_and_generate(filepath, batch_size=32, epochs=100, device='cpu'):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     input_dim = scaled_data.shape[1]
-    batch_size = 64
 
     data_loader = DataLoader(tensor_data, batch_size=batch_size, shuffle=True)
 
