@@ -1,0 +1,69 @@
+# config/enhanced_config.yaml
+
+# Data Processing Settings
+data:
+  input_path: "data/control_samples.csv"
+  preprocessing:
+    scaler: "robust"  # Options: standard, robust, minmax
+    random_seed: 42
+    feature_selection: false
+
+# K-Fold Cross-Validation Parameters
+cross_validation:
+  n_folds: 5
+  shuffle: true
+  stratify: false
+  metrics:
+    - ks_statistic
+    - wasserstein_distance
+    - feature_correlation
+
+
+# WGAN-GP Training Parameters
+training:
+  batch_size: 32
+  epochs: 100
+  learning_rate:
+    generator: 0.0002
+    critic: 0.0002
+  beta1: 0.5
+  beta2: 0.9
+  n_critic: 5
+  gradient_penalty_weight: 10
+
+# Model Architecture
+architecture:
+  generator:
+    hidden_layers: [256, 512]
+    dropout_rate: 0.1
+    activation: "leaky_relu"
+  critic:
+    input_dim: 8063 # Number/dimension of features
+    hidden_layers: [512, 256]
+    dropout_rate: 0.1
+    activation: "leaky_relu"
+
+# Evaluation Metrics
+metrics:
+  statistical:
+    - ks_test
+    - wasserstein_distance
+    - mmd_score
+  biological:
+    - pathway_correlation
+    - feature_importance
+    - cluster_analysis
+
+# Visualization Settings
+visualization:
+  plot_frequency: 10
+  save_plots: true
+  plots:
+    - loss_curves
+    - distribution_comparisons
+    - tsne
+    - pca
+  style:
+    figure_size: [10, 6]
+    color_palette: "Set2"
+    dpi: 300

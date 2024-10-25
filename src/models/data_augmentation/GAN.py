@@ -124,7 +124,7 @@ def train_and_generate(filepath, batch_size=32, epochs=100, device='cpu'):
     train_wgan_gp(data_loader, generator, critic, g_optimizer, c_optimizer, device, epochs)
 
     # Generate samples and compute statistical metrics
-    num_samples = 100
+    num_samples = 77
     latent_samples = torch.randn(num_samples, generator.input_dim, device=device)
     generated_samples = generator(latent_samples).detach().cpu().numpy()
     return generated_samples

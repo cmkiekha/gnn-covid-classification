@@ -3,10 +3,12 @@ from sklearn.preprocessing import StandardScaler
 import torch
 from torch.utils.data import TensorDataset
 
+
 def load_and_process_data(filepath):
     df = pd.read_csv(filepath)
     df.dropna(inplace=True)
     return df
+
 
 def scale_data(data):
     # Initialize a StandardScaler
@@ -14,6 +16,7 @@ def scale_data(data):
     scaled_data = scaler.fit_transform(data)
 
     return scaled_data, scaler
+
 
 def process(filepath):
     # Load and process the data
