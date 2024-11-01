@@ -28,7 +28,6 @@ import matplotlib.pyplot as plt
 from src.utils.preprocessing import process
 from src.utils.evaluation import recenter_data
 
-
 class Generator(nn.Module):
     """
     Generator for a Wasserstein GAN with Gradient Penalty (WGAN-GP), responsible for generating
@@ -67,7 +66,6 @@ class Generator(nn.Module):
         """
         return self.net(z)
 
-
 class Critic(nn.Module):
     """
     Critic (or discriminator) for a Wasserstein GAN with Gradient Penalty (WGAN-GP). The critic evaluates
@@ -98,7 +96,6 @@ class Critic(nn.Module):
             torch.Tensor: The critic's score for the input data, indicating its 'realness'.
         """
         return self.net(x)
-
 
 def compute_gradient_penalty(
     critic: nn.Module,
@@ -145,7 +142,6 @@ def compute_gradient_penalty(
     gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean()
 
     return gradient_penalty
-
 
 def train_wgan_gp(
     data_loader: DataLoader,
@@ -298,78 +294,6 @@ def train_wgan_gp(
     plt.show()
 
     return g_losses, c_losses
-
-
-## ORIGINAL CODE
-# def train_wgan_gp(
-#     data_loader,
-#     generator,
-#     critic,
-#     g_optimizer,
-#     c_optimizer,
-#     device,
-#     epochs=100,
-#     critic_iterations=5,
-#     lambda_gp=10,
-# ):
-#     generator.train()
-#     critic.train()
-
-#     g_losses = []
-#     c_losses = []
-
-#     for epoch in tqdm(range(epochs), desc="Training WGAN-GP"):
-#         for i, data in enumerate(data_loader):
-#             real_samples = data[0].to(device)
-#             current_batch_size = real_samples.size(0)
-
-#             # Train Critic
-#             for _ in range(critic_iterations):
-#                 fake_samples = generator(
-#                     torch.randn(current_batch_size, generator.input_dim, device=device)
-#                 )
-#                 real_scores = critic(real_samples)
-#                 fake_scores = critic(fake_samples)
-#                 gradient_penalty = compute_gradient_penalty(
-#                     critic, real_samples, fake_samples, device
-#                 )
-#                 c_loss = (
-#                     -(torch.mean(real_scores) - torch.mean(fake_scores))
-#                     + lambda_gp * gradient_penalty
-#                 )
-#                 critic.zero_grad()
-#                 c_loss.backward()
-#                 c_optimizer.step()
-
-#             # Train Generator
-#             fake_samples = generator(
-#                 torch.randn(current_batch_size, generator.input_dim, device=device)
-#             )
-#             fake_scores = critic(fake_samples)
-#             g_loss = -torch.mean(fake_scores)
-#             generator.zero_grad()
-#             g_loss.backward()
-#             g_optimizer.step()
-
-#             if i % 5 == 0:
-#                 print(
-#                     f"Epoch: {epoch}, Batch: {i}, G_loss: {g_loss.item()}, C_loss: {c_loss.item()}"
-#                 )
-#                 g_losses.append(g_loss.item())
-#                 c_losses.append(c_loss.item())
-
-#     plt.figure(figsize=(6, 6))
-#     plt.plot(range(len(g_losses)), g_losses, marker="o")
-#     plt.title("Generator Loss")
-#     plt.grid(True)
-#     plt.show()
-
-#     plt.figure(figsize=(6, 6))
-#     plt.plot(range(len(c_losses)), c_losses, marker="o")
-#     plt.title("Critic Loss")
-#     plt.grid(True)
-#     plt.show()
-
 
 def train_and_generate(
     filepath: str,
@@ -549,116 +473,3 @@ def train_and_generate(
     print(synthetic_df.groupby("fold").size())
 
     return final_df, original_data
-
-
-## GENERATING ERROR
-# def train_and_generate(filepath, batch_size=32, epochs=100, device="cpu", n_splits=5):
-#     """
-#     Trains a WGAN-GP and generates synthetic data using K-Fold validation.
-
-#     Args:
-#         filepath (str): Path to the dataset
-#         batch_size (int): Batch size for training
-#         epochs (int): Number of training epochs
-#         device (str): Device to use for training
-#         n_splits (int): Number of folds for K-Fold validation
-
-#     Returns:
-#         pd.DataFrame: Generated synthetic samples with labels
-#     """
-#     # Load and process data
-#     _, tensor_data, scaled_data, scaler, _ = process(filepath)
-
-#     # Debug print
-#     print("Original data types:")
-#     print(scaled_data.dtypes)
-
-#     # Ensure all data are numeric and handle type conversion
-#     numeric_cols = scaled_data.select_dtypes(include=[np.number]).columns
-#     if len(numeric_cols) == 0:
-#         raise ValueError("No numeric columns found in the dataset")
-
-#     print(f"\nUsing {len(numeric_cols)} numeric columns: {numeric_cols.tolist()}")
-
-#     # Select only numeric columns and convert to float32
-#     scaled_data = scaled_data[numeric_cols].astype(np.float32)
-
-#     # Convert to tensor
-#     tensor_data = torch.tensor(scaled_data.values, dtype=torch.float32)
-
-#     # Setup device
-#     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-#     input_dim = scaled_data.shape[1]
-
-#     # Initialize K-Fold
-#     kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
-
-#     all_generated_samples = []
-
-#     for fold, (train_idx, test_idx) in enumerate(kf.split(tensor_data)):
-#         print(f"\nProcessing fold {fold + 1}/{n_splits}")
-
-#         # Create train/test splits
-#         train_data = torch.utils.data.TensorDataset(tensor_data[train_idx])
-#         train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
-
-#         # Initialize models
-#         generator = Generator(input_dim, input_dim).to(device)
-#         critic = Critic(input_dim).to(device)
-
-#         # Initialize optimizers
-#         g_optimizer = Adam(generator.parameters())
-#         c_optimizer = Adam(critic.parameters())
-
-#         # Train the model
-#         train_wgan_gp(
-#             train_loader, generator, critic, g_optimizer, c_optimizer, device, epochs
-#         )
-
-#         # Generate samples
-#         num_samples = len(test_idx)
-#         latent_samples = torch.randn(num_samples, input_dim, device=device)
-#         generated_samples = generator(latent_samples).detach().cpu().numpy()
-
-#         # Recenter the generated data
-#         generated_samples = recenter_data(
-#             generated_samples, scaled_data.iloc[test_idx].values
-#         )
-
-#         # Create DataFrame with generated samples
-#         generated_df = pd.DataFrame(generated_samples, columns=numeric_cols)
-#         generated_df["fold"] = fold + 1
-#         generated_df["type"] = "synthetic"
-
-#         all_generated_samples.append(generated_df)
-
-#         print(f"Completed fold {fold + 1}. Generated {len(generated_df)} samples.")
-
-#     # Combine all generated samples
-#     final_df = pd.concat(all_generated_samples, ignore_index=True)
-
-#     return final_df
-
-
-# def train_and_generate(filepath, batch_size=32, epochs=100, device='cpu'):
-
-#     _, tensor_data, scaled_data, _, _ = process(filepath)
-
-#     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-#     input_dim = scaled_data.shape[1]
-
-#     data_loader = DataLoader(tensor_data, batch_size=batch_size, shuffle=True)
-
-#     generator = Generator(input_dim, input_dim).to(device)
-#     critic = Critic(input_dim).to(device)
-
-#     g_optimizer = Adam(generator.parameters())
-#     c_optimizer = Adam(critic.parameters())
-
-#     train_wgan_gp(data_loader, generator, critic, g_optimizer, c_optimizer, device, epochs)
-
-#     # Generate samples and compute statistical metrics
-#     num_samples = 100
-#     latent_samples = torch.randn(num_samples, generator.input_dim, device=device)
-#     generated_samples = generator(latent_samples).detach().cpu().numpy()
-#     return generated_samples

@@ -1,3 +1,5 @@
+# evaluation.py
+
 import matplotlib.pyplot as plt
 import pandas as pd
 from scipy.stats import ks_2samp
@@ -5,7 +7,6 @@ from sklearn.manifold import TSNE
 import numpy as np
 import seaborn as sns
 from typing import List
-
 
 def recenter_data(
     generated_samples: np.ndarray, original_data: np.ndarray, epsilon: float = 1e-10
@@ -46,7 +47,6 @@ def recenter_data(
         raise ValueError("Recentering produced invalid values")
 
     return recentered
-
 
 def compare_statistics(df1, df2):
     """
@@ -96,7 +96,6 @@ def compare_statistics(df1, df2):
 
     return pd.DataFrame(comparison_dict)
 
-
 def compare_distributions(df1, df2):
     """
     Performs the Kolmogorov-Smirnov test for each column in the dataframes to compare
@@ -132,7 +131,6 @@ def compare_distributions(df1, df2):
     results_df = pd.DataFrame(ks_results)
     results_df = results_df.sort_values("KS_Statistic", ascending=False)
     return results_df
-
 
 def generate_tsne(
     df1: pd.DataFrame, df2: pd.DataFrame, perplexity: int = 30, n_iter: int = 1000
@@ -176,7 +174,6 @@ def generate_tsne(
     ).set_title("t-SNE Visualization of Original vs. Synthetic Data")
     plt.show()
 
-
 # def recenter_data(generated_samples, original_data):
 #     """
 #     Recenters the generated data to match the mean and standard deviation of the original data.
@@ -195,7 +192,6 @@ def generate_tsne(
 
 #     generated_samples_centered = (generated_samples - generated_samples_mean) / generated_samples_std
 #     return generated_samples_centered * original_data_std + original_data_mean
-
 
 def plot_feature_distributions(
     original_df: pd.DataFrame,
@@ -243,7 +239,6 @@ def plot_feature_distributions(
 
     plt.tight_layout()
     plt.show()
-
 
 # Function to get original data for testing
 def get_test_data(data: pd.DataFrame, test_fold: int = None) -> pd.DataFrame:

@@ -4,6 +4,8 @@ from src.models.data_augmentation.VAE import *
 from src.models.data_augmentation.WAE import *
 from src.models.data_augmentation.GAN import *
 
+import config
+
 dataset_path = input("Enter the dataset path (hit enter to keep default): ")
 
 if not len(dataset_path):
@@ -20,7 +22,7 @@ if model_type not in ("1", "2", "3"):
     exit(0)
 
 dataset, tensor_data, scaled_data, scaler, original_dim = process(dataset_path)
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = config.DEVICE
 
 if model_type == "1":
     print("\n\nYou selected VAE. Training initiated.\n\n")
@@ -37,4 +39,7 @@ elif model_type == "2":
 elif model_type == "3":
     print("\n\nYou selected GAN. Training initiated.\n\n")
 
-    generated_samples = train_and_generate(dataset_path, batch_size=32, epochs=100)
+    generated_samples = train_and_generate(
+        dataset_path,
+        batch_size=config.BATCH_SIZE,
+        epochs=config.DEV_EPOCHS)
