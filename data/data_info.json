@@ -1,7 +1,7 @@
 {
   "n_original": 23,
   "n_synthetic": 23,
-  "n_folds": 5,
+  "n_folds": 3,
   "feature_names": [
     "IGKV2.28",
     "IGKV3D.20",
@@ -8068,11 +8068,23 @@
     "ZWINT"
   ],
   "synthetic_fold_sizes": {
-    "1": 5,
-    "2": 5,
-    "3": 5,
-    "4": 4,
-    "5": 4
+    "1": 8,
+    "2": 8,
+    "3": 7
   },
-  "timestamp": "2024-10-27 12:59:11"
+  "timestamp": "2024-11-02 22:32:25",
+  "training_metrics": {
+    "fold_1": {
+      "g_loss": [],
+      "c_loss": []
+    },
+    "fold_2": {
+      "g_loss": [],
+      "c_loss": []
+    },
+    "fold_3": {
+      "g_loss": [],
+      "c_loss": []
+    }
+  }
 }

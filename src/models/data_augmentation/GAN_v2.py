@@ -863,7 +863,7 @@ def train_and_generate(
         fold_df["data_type"] = "synthetic"
         fold_df["fold"] = fold
         fold_df["generation_seed"] = fold
-        fold_df["reference_samples"] = [val_idx.tolist()]
+        fold_df["reference_samples"] = val_idx.tolist()
 
         # Create fold result dictionary for tracking
         fold_result = {

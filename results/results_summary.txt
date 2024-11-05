@@ -1,0 +1,3 @@
+Total original samples: 46
+Total synthetic samples: 23
+Good KS features (%): 0.33

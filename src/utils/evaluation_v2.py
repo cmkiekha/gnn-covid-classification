@@ -1,32 +1,51 @@
 # evaluation_v2.py
+
+import json
+from typing import Dict, Any, List, Optional
+from pathlib import Path
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 import seaborn as sns
-from pathlib import Path
-from typing import List, Dict, Any
 from scipy.stats import ks_2samp
 from sklearn.manifold import TSNE
+
 
 class SyntheticDataEvaluator:
     """
     Comprehensive evaluation suite for synthetic data quality assessment.
     Handles statistical comparisons, visualization, and result saving.
     """
-    
+
     def __init__(self, output_dir: str):
-        """Initialize evaluator with output directory."""
+        """
+        Initialize the evaluator.
+
+        Args:
+            output_dir: Directory for saving evaluation results
+        """
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
-    
+
+        # Initialize data attributes
+        self.original_data: Optional[pd.DataFrame] = None
+        self.synthetic_data: Optional[pd.DataFrame] = None
+        self.feature_columns: List[str] = []
+
+        # Evaluation parameters
+        self.ks_threshold = 0.05
+        self.visualization_params = {
+            "figsize": (12, 8),
+            "dpi": 300,
+            "style": "whitegrid",
+        }
+
     @staticmethod
     def recenter_data(
-        generated_samples: np.ndarray, 
-        original_data: np.ndarray, 
-        epsilon: float = 1e-10
+        generated_samples: np.ndarray, original_data: np.ndarray, epsilon: float = 1e-10
     ) -> np.ndarray:
         """
-        Adjusts the generated samples to match the statistical properties 
+        Adjusts the generated samples to match the statistical properties
         (mean and standard deviation) of the original data.
 
         This recentering ensures that the synthetic data mimics the real data's
@@ -43,13 +62,17 @@ class SyntheticDataEvaluator:
         Raises:
             ValueError: If input dimensions don't match or contain invalid values.
         """
-        # Validate inputs
+        # Input validation
         if generated_samples.shape[1] != original_data.shape[1]:
             raise ValueError(
                 f"Feature dimension mismatch: {generated_samples.shape[1]} vs {original_data.shape[1]}"
             )
 
-        if not np.isfinite(generated_samples).all() or not np.isfinite(original_data).all():
+        # Check for invalid values
+        if (
+            not np.isfinite(generated_samples).all()
+            or not np.isfinite(original_data).all()
+        ):
             raise ValueError("Input arrays contain inf or nan values")
 
         # Calculate statistics
@@ -62,253 +85,386 @@ class SyntheticDataEvaluator:
         standardized = (generated_samples - gen_mean) / gen_std
         recentered = (standardized * orig_std) + orig_mean
 
-        # Verify recentering
+        # Verify results
         if not np.isfinite(recentered).all():
             raise ValueError("Recentering produced invalid values")
 
         return recentered
 
-    def evaluate_synthetic_data(self, 
-                              original_data: pd.DataFrame, 
-                              synthetic_data: pd.DataFrame,
-                              recenter: bool = True) -> Dict[str, Any]:
+    def evaluate_synthetic_data(
+        self,
+        original_data: pd.DataFrame,
+        synthetic_data: pd.DataFrame,
+        recenter: bool = True,
+    ) -> Dict[str, Any]:
         """
-        Comprehensive evaluation of synthetic data quality.
-        
+        Evaluate synthetic data quality comprehensively.
+
         Args:
-            original_data: Original dataset
-            synthetic_data: Generated synthetic dataset
-            recenter: Whether to recenter the synthetic data before evaluation
-        
+            original_data: Original control samples
+            synthetic_data: WGAN-GP generated samples
+            recenter: Whether to recenter synthetic data
+
         Returns:
-            Dict containing evaluation results
+            Evaluation results dictionary
         """
-        # Store original data
+        # Store data
         self.original_data = original_data.copy()
-        
-        # Recenter synthetic data if requested
+
+        # Identify feature columns
+        self.feature_columns = [
+            col
+            for col in synthetic_data.columns
+            if col not in ["data_type", "fold", "sample_id", "type", "target", "split"]
+        ]
+
+        # Recenter if requested
         if recenter:
-            synthetic_features = [col for col in synthetic_data.columns 
-                                if col not in ['data_type', 'fold', 'sample_id', 'type']]
-            
             recentered_data = self.recenter_data(
-                synthetic_data[synthetic_features].values,
-                original_data[synthetic_features].values
+                synthetic_data[self.feature_columns].values,
+                original_data[self.feature_columns].values,
             )
-            
+
             # Create recentered DataFrame
             self.synthetic_data = pd.DataFrame(
                 recentered_data,
-                columns=synthetic_features,
-                index=synthetic_data.index
+                columns=self.feature_columns,
+                index=synthetic_data.index,
             )
-            
-            # Add back metadata columns
+
+            # Restore metadata columns
             for col in synthetic_data.columns:
-                if col not in synthetic_features:
+                if col not in self.feature_columns:
                     self.synthetic_data[col] = synthetic_data[col]
         else:
             self.synthetic_data = synthetic_data.copy()
-        
+
         # Perform evaluations
         results = {
-            'statistical_comparison': self.compare_statistics(
-                self.original_data, 
-                self.synthetic_data
-            ),
-            'distribution_comparison': self.compare_distributions(
-                self.original_data, 
-                self.synthetic_data
-            ),
-            'original_data': self.original_data,
-            'synthetic_data': self.synthetic_data,
-            'recentering_applied': recenter
+            "statistical_comparison": self.compare_statistics(),
+            "distribution_comparison": self.compare_distributions(),
+            "data_summary": self.generate_summary(),
+            "recentering_applied": recenter,
         }
-        
-        # Generate and save plots
+
+        # Generate visualizations
         self.plot_evaluation_results(results)
-        
-        # Save numerical results
+
+        # Save results
         self.save_results(results)
-        
+
         return results
 
-    def compare_statistics(self, df1: pd.DataFrame, df2: pd.DataFrame) -> pd.DataFrame:
+    def compare_statistics(self) -> pd.DataFrame:
         """
         Compare statistical properties between original and synthetic data.
-        
+
         Args:
             df1: Original dataframe
             df2: Synthetic dataframe
-        
+
         Returns:
             DataFrame with statistical comparisons
         """
-        comparison_dict = {
-            "Feature": [],
-            "Mean_Difference": [],
-            "Variance_Difference": [],
-            "Relative_Mean_Diff_%": [],
-            "Relative_Var_Diff_%": [],
-            "Original_Mean": [],
-            "Synthetic_Mean": [],
-            "Original_Std": [],
-            "Synthetic_Std": []
-        }
+        stats_comparison = []
 
-        for column in df1.columns:
-            if column not in ['data_type', 'fold', 'sample_id', 'type']:
-                original_mean = df1[column].mean()
-                synthetic_mean = df2[column].mean()
-                original_std = df1[column].std()
-                synthetic_std = df2[column].std()
-                original_var = df1[column].var()
-                synthetic_var = df2[column].var()
+        for feature in self.feature_columns:
+            orig_stats = self.original_data[feature].describe()
+            synth_stats = self.synthetic_data[feature].describe()
 
-                mean_diff = original_mean - synthetic_mean
-                var_diff = original_var - synthetic_var
-                rel_mean_diff = (mean_diff / original_mean * 100) if original_mean != 0 else np.inf
-                rel_var_diff = (var_diff / original_var * 100) if original_var != 0 else np.inf
+            comparison = {
+                "Feature": feature,
+                "Original_Mean": orig_stats["mean"],
+                "Synthetic_Mean": synth_stats["mean"],
+                "Mean_Diff": abs(orig_stats["mean"] - synth_stats["mean"]),
+                "Original_Std": orig_stats["std"],
+                "Synthetic_Std": synth_stats["std"],
+                "Std_Diff": abs(orig_stats["std"] - synth_stats["std"]),
+                "Original_Q1": orig_stats["25%"],
+                "Synthetic_Q1": synth_stats["25%"],
+                "Original_Q3": orig_stats["75%"],
+                "Synthetic_Q3": synth_stats["75%"],
+                "IQR_Overlap": self._calculate_iqr_overlap(
+                    orig_stats["25%"],
+                    orig_stats["75%"],
+                    synth_stats["25%"],
+                    synth_stats["75%"],
+                ),
+            }
+            stats_comparison.append(comparison)
 
-                comparison_dict["Feature"].append(column)
-                comparison_dict["Mean_Difference"].append(mean_diff)
-                comparison_dict["Variance_Difference"].append(var_diff)
-                comparison_dict["Relative_Mean_Diff_%"].append(rel_mean_diff)
-                comparison_dict["Relative_Var_Diff_%"].append(rel_var_diff)
-                comparison_dict["Original_Mean"].append(original_mean)
-                comparison_dict["Synthetic_Mean"].append(synthetic_mean)
-                comparison_dict["Original_Std"].append(original_std)
-                comparison_dict["Synthetic_Std"].append(synthetic_std)
+        return pd.DataFrame(stats_comparison)
 
-        return pd.DataFrame(comparison_dict)
+    def _calculate_iqr_overlap(
+        self, orig_q1: float, orig_q3: float, synth_q1: float, synth_q3: float
+    ) -> float:
+        """Calculate overlap percentage between original and synthetic IQRs."""
+        overlap_start = max(orig_q1, synth_q1)
+        overlap_end = min(orig_q3, synth_q3)
 
-    def compare_distributions(self, df1: pd.DataFrame, df2: pd.DataFrame) -> pd.DataFrame:
+        if overlap_end <= overlap_start:
+            return 0.0
+
+        orig_iqr = orig_q3 - orig_q1
+        synth_iqr = synth_q3 - synth_q1
+        overlap_length = overlap_end - overlap_start
+
+        return (overlap_length / min(orig_iqr, synth_iqr)) * 100
+
+    def compare_distributions(self) -> pd.DataFrame:
         """
         Perform KS tests between original and synthetic distributions.
-        
+
         Args:
             df1: Original dataframe
             df2: Synthetic dataframe
-        
+
         Returns:
             DataFrame with KS test results
         """
-        ks_results = {
-            "Feature": [],
-            "KS_Statistic": [],
-            "P_Value": [],
-            "Distribution_Match": []
-        }
+        ks_results = []
 
-        for column in df1.columns:
-            if column not in ['data_type', 'fold', 'sample_id', 'type']:
-                statistic, pvalue = ks_2samp(df1[column], df2[column])
-                ks_results["Feature"].append(column)
-                ks_results["KS_Statistic"].append(statistic)
-                ks_results["P_Value"].append(pvalue)
-                ks_results["Distribution_Match"].append("Similar" if pvalue > 0.05 else "Different")
+        for feature in self.feature_columns:
+            statistic, pvalue = ks_2samp(
+                self.original_data[feature], self.synthetic_data[feature]
+            )
+
+            result = {
+                "Feature": feature,
+                "KS_Statistic": statistic,
+                "P_Value": pvalue,
+                "Distribution_Match": (
+                    "Similar" if pvalue > self.ks_threshold else "Different"
+                ),
+            }
+            ks_results.append(result)
 
         return pd.DataFrame(ks_results).sort_values("KS_Statistic", ascending=False)
 
     def plot_evaluation_results(self, results: Dict[str, Any]) -> None:
-        """Generate and save all evaluation plots."""
-        self._plot_ks_statistics(results['distribution_comparison'])
-        self._plot_feature_distributions()
-        self._plot_tsne_visualization()
-        self._plot_statistical_comparisons(results['statistical_comparison'])
-    
-    def _plot_ks_statistics(self, ks_results: pd.DataFrame) -> None:
-        """Plot KS statistics distribution."""
-        plt.figure(figsize=(10, 6))
-        sns.histplot(data=ks_results, x='KS_Statistic', kde=True)
-        plt.title('Distribution of KS Statistics: Original vs Synthetic Data')
-        plt.xlabel('KS Statistic')
-        plt.ylabel('Frequency')
-        plt.grid(True)
-        plt.savefig(self.output_dir / 'ks_statistics.png')
-        plt.close()
+        """Generate all evaluation plots."""
+        sns.set_style(self.visualization_params["style"])
 
-    def _plot_feature_distributions(self) -> None:
-        """Plot feature-wise distributions."""
-        for column in self.original_data.columns:
-            if column not in ['data_type', 'fold', 'sample_id', 'type']:
-                plt.figure(figsize=(10, 6))
-                sns.kdeplot(data=self.original_data[column], label='Original', alpha=0.6)
-                sns.kdeplot(data=self.synthetic_data[column], label='Synthetic', alpha=0.6)
-                plt.title(f'Distribution Comparison: {column}')
-                plt.xlabel('Value')
-                plt.ylabel('Density')
-                plt.legend()
-                plt.grid(True)
-                plt.savefig(self.output_dir / f'feature_distribution_{column}.png')
-                plt.close()
+        self.plot_feature_distributions()  # Remove underscore
+        self.plot_ks_statistics(results["distribution_comparison"])  # Remove underscore
+        self.plot_statistical_summaries(
+            results["statistical_comparison"]
+        )  # Remove underscore
+        self.plot_correlation_comparison()  # Remove underscore
+        self.plot_tsne_visualization()  # Remove underscore
 
-    def _plot_tsne_visualization(self) -> None:
-        """Generate and save t-SNE visualization."""
-        # Prepare data
-        df1_copy = self.original_data.copy()
-        df2_copy = self.synthetic_data.copy()
-        df1_copy['type'] = 'Original'
-        df2_copy['type'] = 'Synthetic'
-        
-        combined_df = pd.concat([df1_copy, df2_copy])
-        features = [col for col in combined_df.columns 
-                   if col not in ['data_type', 'fold', 'sample_id', 'type']]
-        
+    def plot_feature_distributions(self) -> None:
+        """Plot density comparisons for each feature."""
+        for feature in self.feature_columns:
+            fig, ax = plt.subplots(figsize=self.visualization_params["figsize"])
+
+            sns.kdeplot(
+                data=self.original_data[feature], label="Original", alpha=0.7, ax=ax
+            )
+            sns.kdeplot(
+                data=self.synthetic_data[feature], label="Synthetic", alpha=0.7, ax=ax
+            )
+
+            ax.set_title(f"Distribution Comparison: {feature}")
+            ax.set_xlabel("Value")
+            ax.set_ylabel("Density")
+            ax.legend()
+            ax.grid(True)
+
+            plt.savefig(
+                self.output_dir / f"distribution_{feature}.png",
+                dpi=self.visualization_params["dpi"],
+            )
+            plt.close(fig)
+
+    def plot_ks_statistics(self, ks_results: pd.DataFrame) -> None:
+        """Plot KS test results."""
+        fig, ax = plt.subplots(figsize=self.visualization_params["figsize"])
+
+        sns.barplot(
+            data=ks_results,
+            x="Feature",
+            y="KS_Statistic",
+            hue="Distribution_Match",
+            ax=ax,
+        )
+
+        ax.tick_params(axis="x", rotation=45)
+        ax.set_title("KS Statistics by Feature")
+
+        plt.tight_layout()
+        plt.savefig(
+            self.output_dir / "ks_statistics.png", dpi=self.visualization_params["dpi"]
+        )
+        plt.close(fig)
+
+    def plot_statistical_summaries(self, stats_comparison: pd.DataFrame) -> None:
+        """Plot statistical comparison summaries."""
+        fig, axes = plt.subplots(2, 1, figsize=(12, 12), height_ratios=[1, 1])
+
+        # Mean comparison
+        sns.scatterplot(
+            data=stats_comparison, x="Original_Mean", y="Synthetic_Mean", ax=axes[0]
+        )
+        axes[0].plot(
+            [
+                stats_comparison["Original_Mean"].min(),
+                stats_comparison["Original_Mean"].max(),
+            ],
+            [
+                stats_comparison["Original_Mean"].min(),
+                stats_comparison["Original_Mean"].max(),
+            ],
+            "r--",
+        )
+        axes[0].set_title("Mean Comparison")
+
+        # Std comparison
+        sns.scatterplot(
+            data=stats_comparison, x="Original_Std", y="Synthetic_Std", ax=axes[1]
+        )
+        axes[1].plot(
+            [
+                stats_comparison["Original_Std"].min(),
+                stats_comparison["Original_Std"].max(),
+            ],
+            [
+                stats_comparison["Original_Std"].min(),
+                stats_comparison["Original_Std"].max(),
+            ],
+            "r--",
+        )
+        axes[1].set_title("Standard Deviation Comparison")
+
+        plt.tight_layout()
+        plt.savefig(
+            self.output_dir / "statistical_summaries.png",
+            dpi=self.visualization_params["dpi"],
+        )
+        plt.close(fig)
+
+    def plot_correlation_comparison(self) -> None:
+        """Plot correlation matrix comparisons."""
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 8))
+
+        orig_corr = self.original_data[self.feature_columns].corr()
+        synth_corr = self.synthetic_data[self.feature_columns].corr()
+
+        sns.heatmap(orig_corr, ax=ax1, cmap="coolwarm", center=0)
+        ax1.set_title("Original Data Correlations")
+
+        sns.heatmap(synth_corr, ax=ax2, cmap="coolwarm", center=0)
+        ax2.set_title("Synthetic Data Correlations")
+
+        fig.suptitle("Correlation Matrix Comparison: Original vs Synthetic", y=1.05)
+        fig.tight_layout()
+
+        plt.savefig(
+            self.output_dir / "correlation_comparison.png",
+            dpi=self.visualization_params["dpi"],
+            bbox_inches="tight",
+        )
+        plt.close(fig)
+
+    def plot_tsne_visualization(self) -> None:
+        """Generate t-SNE visualization."""
+        # Combine features
+        combined_features = pd.concat(
+            [
+                self.original_data[self.feature_columns],
+                self.synthetic_data[self.feature_columns],
+            ]
+        )
+
+        # Create labels for coloring
+        labels = np.array(
+            [0] * len(self.original_data) + [1] * len(self.synthetic_data)
+        )
+
         # Compute t-SNE
         tsne = TSNE(n_components=2, perplexity=30, n_iter=1000, random_state=42)
-        tsne_results = tsne.fit_transform(combined_df[features])
-        
-        # Plot
-        plt.figure(figsize=(10, 10))
-        sns.scatterplot(
-            x=tsne_results[:, 0],
-            y=tsne_results[:, 1],
-            hue=combined_df['type'],
-            palette=sns.color_palette("hsv", 2),
-            alpha=0.7
+
+        embeddings = tsne.fit_transform(combined_features)
+
+        # Create plot
+        fig, ax = plt.subplots(figsize=self.visualization_params["figsize"])
+        scatter = ax.scatter(
+            embeddings[:, 0], embeddings[:, 1], c=labels, cmap="coolwarm", alpha=0.6
         )
-        plt.title('t-SNE Visualization: Original vs Synthetic Data')
-        plt.savefig(self.output_dir / 'tsne_visualization.png')
-        plt.close()
+
+        # Add legend
+        legend_elements = [
+            plt.Line2D(
+                [0],
+                [0],
+                marker="o",
+                color="w",
+                markerfacecolor=scatter.cmap(0),
+                label="Original",
+                markersize=10,
+            ),
+            plt.Line2D(
+                [0],
+                [0],
+                marker="o",
+                color="w",
+                markerfacecolor=scatter.cmap(1),
+                label="Synthetic",
+                markersize=10,
+            ),
+        ]
+        ax.legend(handles=legend_elements)
+
+        ax.set_title("t-SNE Visualization of Original vs Synthetic Data")
+
+        plt.savefig(
+            self.output_dir / "tsne_visualization.png",
+            dpi=self.visualization_params["dpi"],
+        )
+        plt.close(fig)
+
+    def generate_summary(self) -> Dict[str, Any]:
+        """Generate summary statistics for the evaluation."""
+        return {
+            "n_original_samples": len(self.original_data),
+            "n_synthetic_samples": len(self.synthetic_data),
+            "n_features": len(self.feature_columns),
+            "feature_names": self.feature_columns,
+            "timestamp": pd.Timestamp.now().isoformat(),
+        }
 
     def save_results(self, results: Dict[str, Any]) -> None:
-        """Save numerical results to files."""
+        """Save evaluation results to files."""
         # Save statistical comparisons
-        results['statistical_comparison'].to_csv(
-            self.output_dir / 'statistical_comparison.csv', index=False)
-        
-        # Save KS test results
-        results['distribution_comparison'].to_csv(
-            self.output_dir / 'distribution_comparison.csv', index=False)
-        
-        # Save summary metrics
-        summary = {
-            'n_original_samples': len(self.original_data),
-            'n_synthetic_samples': len(self.synthetic_data),
-            'n_features': len(self.original_data.columns),
-            'mean_ks_statistic': results['distribution_comparison']['KS_Statistic'].mean(),
-            'percent_similar_distributions': 
-                (results['distribution_comparison']['Distribution_Match'] == 'Similar').mean() * 100
-        }
-        
-        with open(self.output_dir / 'evaluation_summary.json', 'w') as f:
-            json.dump(summary, f, indent=4)
+        results["statistical_comparison"].to_csv(
+            self.output_dir / "statistical_comparison.csv", index=False
+        )
 
-def evaluate_synthetic_data(original_data: pd.DataFrame, 
-                          synthetic_data: pd.DataFrame,
-                          output_dir: str) -> Dict[str, Any]:
+        # Save distribution comparisons
+        results["distribution_comparison"].to_csv(
+            self.output_dir / "distribution_comparison.csv", index=False
+        )
+
+        # Save summary
+        with open(
+            self.output_dir / "evaluation_summary.json", "w", encoding="utf-8"
+        ) as f:
+            json.dump(results["data_summary"], f, indent=4)
+
+
+def evaluate_synthetic_data(
+    original_data: pd.DataFrame, synthetic_data: pd.DataFrame, output_dir: str
+) -> Dict[str, Any]:
     """
     Wrapper function for synthetic data evaluation.
-    
+
     Args:
-        original_data: Original dataset
-        synthetic_data: Generated synthetic dataset
-        output_dir: Directory for saving results
-    
+        original_data: Original control samples
+        synthetic_data: WGAN-GP generated samples
+        output_dir: Output directory for results
+
     Returns:
-        Dict containing evaluation results
+        Evaluation results dictionary
     """
     evaluator = SyntheticDataEvaluator(output_dir)
     return evaluator.evaluate_synthetic_data(original_data, synthetic_data)
-```

@@ -28,6 +28,7 @@ import matplotlib.pyplot as plt
 from src.utils.preprocessing import process
 from src.utils.evaluation import recenter_data
 
+
 class Generator(nn.Module):
     """
     Generator for a Wasserstein GAN with Gradient Penalty (WGAN-GP), responsible for generating
@@ -66,6 +67,7 @@ class Generator(nn.Module):
         """
         return self.net(z)
 
+
 class Critic(nn.Module):
     """
     Critic (or discriminator) for a Wasserstein GAN with Gradient Penalty (WGAN-GP). The critic evaluates
@@ -96,6 +98,7 @@ class Critic(nn.Module):
             torch.Tensor: The critic's score for the input data, indicating its 'realness'.
         """
         return self.net(x)
+
 
 def compute_gradient_penalty(
     critic: nn.Module,
@@ -142,6 +145,7 @@ def compute_gradient_penalty(
     gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean()
 
     return gradient_penalty
+
 
 def train_wgan_gp(
     data_loader: DataLoader,
@@ -294,6 +298,7 @@ def train_wgan_gp(
     plt.show()
 
     return g_losses, c_losses
+
 
 def train_and_generate(
     filepath: str,
