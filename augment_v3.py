@@ -1,70 +1,43 @@
-"""
-The augment_v3.py script is a standalone script that trains the 
-WGAN-GP model and generates synthetic data.
-"""
 
-from pathlib import Path
-import torch
-
+# path tp GAN_v3.py
+from src.models.data_augmentation.GAN_v3 import train_and_generate
+#path to DataPreprocessor
+from src.preprocessing_v4 import DataPreprocessor
 import config
-from src.utils.preprocessing import process
-from src.models.data_augmentation.GAN import train_and_generate
+from pathlib import Path
 
 def main():
     """
-    Main execution function to train the WGAN-GP model and generate synthetic data.
+    Main function to preprocess data, generate synthetic samples using WGAN-GP, 
+    and save the generated data to a CSV file.
 
-    This function loads data from a specified path, processes it, and uses the WGAN-GP model
-    to generate synthetic samples. The results are then saved to a CSV file. It allows
-    for user interaction to specify the dataset path.
+    Workflow:
+    1. Loads and preprocesses the original data from the file path specified in the config.
+       - Missing values are handled, and numeric data is scaled.
+    2. Generates synthetic data using the WGAN-GP model.
+       - Uses the scaled data as input for the generator, with the number of epochs defined in config.DEBUG_EPOCHS.
+    3. Saves the generated synthetic data to a CSV file in the output directory specified in config.RESULT_DIR.
 
-    Arguments:
-    None - Uses global config settings and user input for configuration.
+    Files:
+        - Input data is loaded from config.DATA_PATH.
+        - Synthetic data is saved to config.RESULT_DIR/augmented_data.csv.
 
     Raises:
-    FileNotFoundError: If the dataset path is invalid or the file is not found.
-    RuntimeError: If there is an issue with model training or data generation.
+        FileNotFoundError: If the specified data file in config.DATA_PATH does not exist.
+        Exception: If the synthetic data generation or saving fails.
+
+    Example:
+        To run the function as a script:
+        $ python script_name.py
 
     Returns:
-    None - Outputs are saved directly to files.
+        None
     """
-    # Prompt the user for the dataset path or use the default from config
-    #dataset_path = input("Enter the dataset path (hit enter to keep default): ")
-    #if not dataset_path:
-    dataset_path = config.DATA_PATH
-
-    print(f"\nLoading dataset from path: {dataset_path}")
-
-    # Ensure the dataset file exists
-    if not Path(dataset_path).exists():
-        raise FileNotFoundError(f"No file found at the specified path: {dataset_path}")
-
-    # Processing the dataset
-    # If you are not using scaled_data and scaler, no need to unpack them
-    _, _, _, _, _ = process(dataset_path)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    # Start training the WGAN-GP model
-    print("\nTraining WGAN-GP model...")
-    output = train_and_generate(
-        filepath=dataset_path,
-        batch_size=config.BATCH_SIZE,
-        epochs=config.DEBUG_EPOCHS,
-        device=device,
-        n_splits=config.CV_N_SPLITS,
-        learning_rate=config.LEARNING_RATE
-    )
-
-    # Handling the output tuple from train_and_generate
-    if isinstance(output, tuple):
-        # Assume output is a tuple of DataFrames or similar
-        augmented_df = output[0]  # Assuming the first element is what you want to save
-        if augmented_df is not None:
-            results_path = Path(config.RESULT_DIR) / "augmented_data.csv"
-            augmented_df.to_csv(results_path, index=False)
-            print(f"Augmented data saved to {results_path}")
-    else:
-        print("Expected a tuple from the model output, received:", type(output))
+    scaled_data, scaler, original_data = DataPreprocessor().process(config.DATA_PATH)
+    synthetic_data, _ = train_and_generate(scaled_data, original_data, config.DEBUG_EPOCHS, scaler)
+    result_path = Path(config.RESULT_DIR) / "augmented_data.csv"
+    synthetic_data.to_csv(result_path, index=False)
+    print(f"Synthetic data saved to {result_path}")
 
 if __name__ == "__main__":
     main()

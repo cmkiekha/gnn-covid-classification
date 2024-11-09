@@ -1,3 +1,3 @@
-Total original samples: 46
-Total synthetic samples: 23
-Good KS features (%): 0.33
+TOTAL_SAMPLES_ORIGINAL: 46
+TOTAL_SAMPLES_SYNTHETIC: 23
+TRAINING_TIME: 0:00:09.303894
