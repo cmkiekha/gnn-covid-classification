@@ -85,7 +85,7 @@ from src.models.data_augmentation.GAN_v3 import (
     Critic,
 )
 
-from config import (
+from src.config import (
     DATA_PATH,
     RESULT_DIR,
     BATCH_SIZE,

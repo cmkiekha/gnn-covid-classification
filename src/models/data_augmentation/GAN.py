@@ -10,23 +10,78 @@ Key Components:
     - Critic: Network that evaluates sample authenticity
     - train_wgan_gp: Main training loop with gradient penalty
     - train_and_generate: High-level function combining training and generation with K-fold CV
+
 """
 
-import json
-from pathlib import Path
+import sys
+import os
+
+# Add the project root directory to Python path
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
+sys.path.append(project_root)
+
+# Rest of your imports
 from datetime import datetime
-from typing import Tuple, List, Optional, Dict, Any
+from pathlib import Path
+import json
+from typing import Tuple, List, Dict
+from sklearn.model_selection import train_test_split, KFold
 import torch
 from torch import nn
 from torch.optim import Adam
-from torch.utils.data import DataLoader
-from sklearn.model_selection import KFold
+from torch.utils.data import DataLoader, TensorDataset
 import pandas as pd
+import numpy as np
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-
-from src.utils.preprocessing import process
+from src.utils.preprocessing_v3 import process
 from src.utils.evaluation import recenter_data
+from src.config import (
+    DEVICE,
+    RANDOM_STATE,
+    SAVE_INFO,
+    LEARNING_RATE,
+    CV_N_SPLITS,
+    BATCH_SIZE,
+    DEV_EPOCHS,
+)
+
+
+# Function to get DataLoader from DataFrame
+def get_data_loader(data_df, batch_size=32):
+    target = data_df.pop("target")  # Assuming 'target' is in data_df
+    dataset = TensorDataset(
+        torch.tensor(data_df.values, dtype=torch.float32),
+        torch.tensor(target.values, dtype=torch.float32),
+    )
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    return loader
+
+
+# Usage of the function assuming preprocessing_v3.process() returns the required train_df
+# For example, let's assume the process function is called as follows:
+filepath = "/Users/carolkiekhaefer10-2023/Documents/GitHub/gnn-covid-classification/data/data_combined_controls.csv"
+
+# Read and inspect the data first
+print("\n=== Data Inspection ===")
+df = pd.read_csv(filepath)
+print("\nColumns in dataset:")
+print(df.columns.tolist())
+print("\nFirst few rows:")
+print(df.head())
+print("\nShape of dataset:", df.shape)
+
+# Now proceed with processing with the correct target column name
+train_dataset, test_dataset, scaler = process(
+    filepath, target_column="Group"
+)  # Modify target_column here
+print("\nProcessing successful!")
+print("Train dataset shape:", train_dataset.shape)
+print("Test dataset shape:", test_dataset.shape)
+
+# Adjust according to actual return values of process function
+train_dataset, test_dataset, scaler = process(filepath)
+train_loader = get_data_loader(train_dataset)
 
 
 class Generator(nn.Module):
@@ -42,6 +97,8 @@ class Generator(nn.Module):
 
     def __init__(self, input_dim, output_dim):
         super(Generator, self).__init__()
+        self.input_dim = input_dim
+        self.output_dim = output_dim
         self.net = nn.Sequential(
             nn.Linear(input_dim, 256),
             nn.BatchNorm1d(256),
@@ -104,20 +161,20 @@ def compute_gradient_penalty(
     critic: nn.Module,
     real_samples: torch.Tensor,
     fake_samples: torch.Tensor,
-    device: torch.device,
+    device: torch.device = config.DEVICE,
 ) -> torch.Tensor:
     """
     Computes the gradient penalty for enforcing the Lipschitz constraint in WGAN-GP.
     This penalty promotes smooth gradients of the critic network.
 
     Args:
-        critic (torch.nn.Module): The critic network that evaluates the authenticity of data.
+        critic (nn.Module): The critic network that evaluates the authenticity of data.
         real_samples (torch.Tensor): Samples from the real dataset.
         fake_samples (torch.Tensor): Generated samples from the generator.
-        device (torch.device): The device tensors are on (e.g., CPU or CUDA).
+        device (torch.device): The device tensors are on (e.g., CPU or CUDA), defaults to configured device.
 
     Returns:
-        The computed gradient penalty, a scalar tensor (torch tensor) that should be added
+        torch.Tensor: The computed gradient penalty, a scalar tensor that should be added
         to the critic's loss to enforce the Lipschitz condition.
     """
     # Random weight for interpolation
@@ -141,9 +198,7 @@ def compute_gradient_penalty(
     )[0]
 
     # Calculate penalty
-    gradients = gradients.view(gradients.size(0), -1)
     gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean()
-
     return gradient_penalty
 
 
@@ -154,7 +209,7 @@ def train_wgan_gp(
     g_optimizer: Adam,
     c_optimizer: Adam,
     device: torch.device,
-    epochs: int = 100,
+    epochs: int = 10,
     critic_iterations: int = 5,
     lambda_gp: float = 10,
     noise_multiplier: float = 1.0,
@@ -305,7 +360,7 @@ def train_and_generate(
     batch_size: int = 32,
     epochs: int = 20,
     device: str = "cpu",
-    n_splits: int = 5,
+    n_splits: int = 3,
     learning_rate: float = 0.001,
     save_info: bool = True,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -333,7 +388,8 @@ def train_and_generate(
             - original_data: Original data only, for testing
     """
     # Load and process data - unpack only what we need
-    _, _, scaled_data, scaler, n_features = process(filepath)
+    #_, _, scaled_data, scaler, n_features = process(filepath)
+    scaled_data, scaler = process(filepath)
 
     # Store original data with proper labeling
     original_data = scaled_data.copy()
@@ -367,7 +423,7 @@ def train_and_generate(
         ).to(device)
 
         train_loader = DataLoader(
-            train_tensor  # , batch_size=batch_size, shuffle=True, drop_last=True
+            train_tensor, batch_size=batch_size, shuffle=True, drop_last=False
         )
 
         print(f"Train Loader Len: {len(train_loader)}")
@@ -403,7 +459,8 @@ def train_and_generate(
         # Process generated samples
         synthetic_unscaled = scaler.inverse_transform(synthetic_samples)
         recentered_samples = recenter_data(
-            synthetic_unscaled, scaled_data.iloc[val_idx].values
+            #synthetic_unscaled, scaled_data.iloc[val_idx].values
+            synthetic_unscaled, scaled_data.iloc[train_idx].values
         )
 
         # Create DataFrame with metadata
@@ -420,7 +477,8 @@ def train_and_generate(
         fold_df["data_type"] = "synthetic"
         fold_df["fold"] = fold
         fold_df["generation_seed"] = fold
-        fold_df["reference_samples"] = [val_idx.tolist()]
+        # Correctly assign `reference_samples` to match the DataFrame row count
+        fold_df["reference_samples"] = [val_idx.tolist()] * len(fold_df)
 
         generated_samples.append(fold_df)
 
